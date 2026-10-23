@@ -1,0 +1,12 @@
+[Desktop Entry]
+Version=1.1
+Type=Application
+Name=Harness² Studio
+GenericName=Agent Harness Control Room
+Comment=Install, run, judge and inspect Google Research Harness²
+Exec=harness2-studio
+Icon=harness2-studio
+Terminal=false
+Categories=Development;IDE;
+Keywords=harness;agent;google;research;benchmark;
+StartupWMClass=harness2-studio
