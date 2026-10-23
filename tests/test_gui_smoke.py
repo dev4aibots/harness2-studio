@@ -6,14 +6,27 @@ headless box stays honest instead of pretending to cover the UI.
 
 from __future__ import annotations
 
-import os
-
 import pytest
 
 tk = pytest.importorskip("tkinter")
 
-if os.name != "nt" and not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
-    pytest.skip("no display available", allow_module_level=True)
+
+def _tk_display_available() -> bool:
+    """Probe for a real display instead of inferring one from environment variables.
+
+    GitHub's Windows and macOS runners ship tkinter but no usable window server, so
+    ``os.name`` alone is not enough: constructing a root is the only honest test.
+    """
+    try:
+        root = tk.Tk()
+    except tk.TclError:
+        return False
+    root.destroy()
+    return True
+
+
+if not _tk_display_available():
+    pytest.skip("no display available for Tk", allow_module_level=True)
 
 
 def test_app_constructs_and_every_view_renders() -> None:
