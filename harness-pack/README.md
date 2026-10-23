@@ -12,6 +12,7 @@ Installed and validated against Harness²'s own surface rules:
 | Jinja composition (`home_dir_jinja`) | one `instruction` placeholder, no brace hazards |
 | Census | 4 skills, 4 subagents, 3 scripts, 1 plugin |
 | Install modes | `workspace_agents_md`, `home_dir_jinja`, `workspace_config` all materialise |
+| Plugin API | hook signature and argument shape checked against `@opencode-ai/plugin` at tag `v1.14.18` |
 
 ## What each component does
 
