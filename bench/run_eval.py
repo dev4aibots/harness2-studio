@@ -80,6 +80,7 @@ def main() -> int:
     parser.add_argument("--model", required=True)
     parser.add_argument("--harness", choices=("baseline", "ours"), required=True)
     parser.add_argument("--k", type=int, default=1)
+    parser.add_argument("--rep-start", type=int, default=1, help="first repetition number to run")
     parser.add_argument("--tasks", default="", help="comma-separated task ids")
     parser.add_argument("--cap", type=float, default=25.0, help="hard spend cap in USD")
     parser.add_argument("--jobs", type=int, default=4, help="concurrent rollouts")
@@ -88,6 +89,7 @@ def main() -> int:
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
+    label = os.environ.get("HARNESS_LABEL", args.harness)
     system = ours() if args.harness == "ours" else BASELINE
     if args.dry_run:
         print(f"{args.harness}: {len(system)} chars")
@@ -120,7 +122,7 @@ def main() -> int:
     jobs = []
     for task_dir in task_dirs:
         manifest = json.loads((task_dir / "TASK.json").read_text())
-        for rep in range(1, args.k + 1):
+        for rep in range(max(1, args.rep_start), args.k + 1):
             jobs.append((manifest, rep))
 
     spent = 0.0
@@ -145,13 +147,13 @@ def main() -> int:
             )
         except Exception as exc:  # noqa: BLE001 - a failed call is a failed rollout
             return {
-                "task": manifest["id"], "harness": args.harness, "model": args.model,
+                "task": manifest["id"], "harness": label, "model": args.model,
                 "rep": rep, "passed": False, "error": str(exc)[:500], "cost": 0.0,
             }
         passed, tail = tasklib.grade(work, pristine)
         shutil.rmtree(work, ignore_errors=True)
         return {
-            "task": manifest["id"], "harness": args.harness, "model": args.model,
+            "task": manifest["id"], "harness": label, "model": args.model,
             "rep": rep, "passed": passed, "turns": run.turns,
             "tool_calls": run.tool_calls, "cost": round(run.usage.cost, 4),
             "prompt_tokens": run.usage.prompt_tokens,

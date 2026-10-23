@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from collections import defaultdict
 from pathlib import Path
 
@@ -39,6 +40,9 @@ def load() -> list[dict]:
 
 def main() -> int:
     rows = load()
+    only = os.environ.get("REPORT_MODEL", "").strip()
+    if only:
+        rows = [r for r in rows if only in r["model"]]
     arms = defaultdict(list)
     for row in rows:
         arms[(row["model"], row["harness"])].append(row)
@@ -51,12 +55,14 @@ def main() -> int:
         "system prompt: the Harness² v0 baseline (empty) versus the C1–C8 pack in "
         "`harness-pack/base`.\n"
     )
+    if only:
+        lines.append(f"Filtered to models containing `{only}`.\n")
     lines.append("## Design\n")
     lines.append(
         "- Tasks: semantic mutations of a real Python repository, each with its own failing tests.\n"
         "- Grading: the grader restores `tests/` from a pristine snapshot, then runs the suite. "
         "Editing tests cannot produce a pass.\n"
-        "- Rollouts: k=2 per task per arm; pass@2 counts a task as solved if either attempt passed.\n"
+        "- Rollouts: k varies by arm; the Runs column is the exact count. pass@k counts a task as solved if any attempt passed.\n"
         "- Sandbox: commands limited to a read/test whitelist, 20 turns, 60 s per command.\n"
     )
 
@@ -71,7 +77,7 @@ def main() -> int:
     )
 
     lines.append("## Summary\n")
-    lines.append("| Model | Harness | Runs | Passes | Pass@1 | 95% CI | Pass@2 | Avg turns | Avg prompt tok | Avg completion tok |")
+    lines.append("| Model | Harness | Runs | Passes | Pass@1 | 95% CI | Pass@k | Avg turns | Avg prompt tok | Avg completion tok |")
     lines.append("|---|---|---|---|---|---|---|---|---|---|")
     summary = {}
     for (model, harness), group in sorted(arms.items()):

@@ -1,0 +1,130 @@
+{
+  "model": "Claude Opus 5.5",
+  "retrieved": "2026-10-23",
+  "sources": [
+    {
+      "name": "Anthropic: Claude Opus 5.5 launch page",
+      "url": "https://www.anthropic.com/claude-opus-5-5",
+      "published": "2026-09-22",
+      "note": "Vendor run: max effort, adaptive thinking, production safeguards. Anthropic reports a +/-2.6 point standard error on Terminal-Bench 4.0 and notes that the public leaderboard's Claude Code harness scores Opus 5 at 51.8% where its own setup reproduces 52.3%."
+    },
+    {
+      "name": "LLM Stats: SWE-Bench Pro leaderboard",
+      "url": "https://llm-stats.com/benchmarks/swe-bench-pro",
+      "published": "2026-10-23",
+      "note": "62 models, 0 independently verified, 62 self-reported. Scale's standardized public set tops out near 61.5%, roughly 28 points below the self-reported top row."
+    }
+  ],
+  "benchmarks": [
+    {
+      "id": "swe-bench-pro",
+      "name": "SWE-Bench Pro",
+      "score": 0.899,
+      "display": "89.9%",
+      "unit": "pass@1",
+      "source": "llm-stats",
+      "verified": false,
+      "runnable_here": false,
+      "why": "Instance images and the 731-instance dataset are not obtainable from this machine (Hugging Face throttled to ~141 B/s, codeload timed out)."
+    },
+    {
+      "id": "terminal-bench-4",
+      "name": "Terminal-Bench 4.0",
+      "score": 0.664,
+      "display": "66.4%",
+      "unit": "task success",
+      "source": "anthropic",
+      "verified": false,
+      "runnable_here": false,
+      "why": "Every task is a Docker image pulled from a registry; the pull budget on this connection exceeds the run budget."
+    },
+    {
+      "id": "terminal-bench-science",
+      "name": "Terminal-Bench-Science 0.1",
+      "score": 0.587,
+      "display": "58.7%",
+      "unit": "task success",
+      "source": "anthropic",
+      "verified": false,
+      "runnable_here": false,
+      "why": "Same registry-bound task images as Terminal-Bench."
+    },
+    {
+      "id": "frontier-code",
+      "name": "FrontierCode v1.1 (Main)",
+      "score": 0.544,
+      "display": "54.4%",
+      "unit": "pass@1",
+      "source": "anthropic",
+      "verified": false,
+      "runnable_here": false,
+      "why": "Internal benchmark; no public dataset or harness."
+    },
+    {
+      "id": "cursor-bench",
+      "name": "CursorBench 4.0",
+      "score": 0.578,
+      "display": "57.8%",
+      "unit": "pass@1",
+      "source": "anthropic",
+      "verified": false,
+      "runnable_here": false,
+      "why": "Proprietary to Cursor; no public instances."
+    },
+    {
+      "id": "automation-bench",
+      "name": "AutomationBench",
+      "score": 0.4,
+      "display": "40.0%",
+      "unit": "task success",
+      "source": "anthropic",
+      "verified": false,
+      "runnable_here": false,
+      "why": "Benchmark harness and task environment are not published."
+    },
+    {
+      "id": "gdpval",
+      "name": "GDPval-AA v2.1",
+      "score": 1846,
+      "display": "1846 Elo",
+      "unit": "Elo",
+      "source": "anthropic",
+      "verified": false,
+      "runnable_here": false,
+      "why": "Occupational-task evaluation graded by human experts; not machine-runnable."
+    },
+    {
+      "id": "hle",
+      "name": "Humanity's Last Exam (with tools)",
+      "score": 0.677,
+      "display": "67.7%",
+      "unit": "accuracy",
+      "source": "anthropic",
+      "verified": false,
+      "runnable_here": false,
+      "why": "Gated dataset; the public split has been contaminated and is not a valid substitute."
+    },
+    {
+      "id": "osworld",
+      "name": "OSWorld 2.1",
+      "score": 0.818,
+      "display": "81.8% (partial)",
+      "unit": "task success",
+      "source": "anthropic",
+      "verified": false,
+      "runnable_here": false,
+      "why": "Requires VM images and a desktop-control harness."
+    },
+    {
+      "id": "swe-bench-multilingual",
+      "name": "SWE-bench Multilingual",
+      "score": 0.939,
+      "display": "93.9%",
+      "unit": "pass@1",
+      "source": "anthropic",
+      "verified": false,
+      "runnable_here": false,
+      "why": "Dataset download is throttled; repositories span nine languages with per-language toolchains."
+    }
+  ]
+}
