@@ -1,5 +1,10 @@
 # Harness² Studio
 
+[![ci](https://github.com/dev4aibots/harness2-studio/actions/workflows/ci.yml/badge.svg)](https://github.com/dev4aibots/harness2-studio/actions/workflows/ci.yml)
+![license](https://img.shields.io/badge/license-MIT-blue)
+![python](https://img.shields.io/badge/python-3.10%2B-blue)
+![dependencies](https://img.shields.io/badge/runtime%20dependencies-0-brightgreen)
+
 A desktop control room for [Harness²](https://github.com/google-research/harness2) — recursive agent harnessing — built with Google's Material 3 language and **zero third-party runtime dependencies**.
 
 Harness² is a CLI framework: seven `argparse` commands, a `runs/` tree, and eight editable harness components. This app puts a real interface on that surface — no mock data, no invented buttons. It can also **install or update the official source for you**, without git, and verify every downloaded file against GitHub's hash.
@@ -54,6 +59,8 @@ The in-app **Guide** (top-right, contextual to the screen you were on) covers in
 ### Run from a checkout
 
 ```bash
+git clone https://github.com/dev4aibots/harness2-studio.git
+cd harness2-studio
 python3 run.py          # normal launch
 python3 run.py --check  # construct + destroy without showing the window
 ```
