@@ -23,3 +23,6 @@ packages = ["h2studio", "h2studio.services", "h2studio.views"]
 
 [tool.setuptools.package-data]
 h2studio = ["assets/*.png", "assets/*.svg"]
+
+[tool.pytest.ini_options]
+norecursedirs = ["bench/tasks", "bench/work", "bench/harness_versions", ".git"]
