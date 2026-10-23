@@ -6,6 +6,7 @@ difference in pass rate is attributable to the harness rather than to the scaffo
 
 from __future__ import annotations
 
+import itertools
 import json
 import os
 import shlex
@@ -62,50 +63,59 @@ TOOLS = [
     {
         "type": "function",
         "function": {
-            "name": "list_files",
-            "description": "List files under a directory of the workspace.",
-            "parameters": {
-                "type": "object",
-                "properties": {"path": {"type": "string", "default": "."}},
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "read_file",
-            "description": "Read a file, optionally a 1-based line range.",
+            "name": "read",
+            "description": "Read a file. Output carries 1-based line numbers. Use offset and limit for a range.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "path": {"type": "string"},
-                    "start": {"type": "integer", "default": 1},
-                    "end": {"type": "integer", "default": 400},
+                    "filePath": {"type": "string"},
+                    "offset": {"type": "integer", "default": 1},
+                    "limit": {"type": "integer", "default": 400},
                 },
-                "required": ["path"],
+                "required": ["filePath"],
             },
         },
     },
     {
         "type": "function",
         "function": {
-            "name": "write_file",
+            "name": "write",
             "description": "Overwrite a file with new content.",
             "parameters": {
                 "type": "object",
-                "properties": {"path": {"type": "string"}, "content": {"type": "string"}},
-                "required": ["path", "content"],
+                "properties": {"filePath": {"type": "string"}, "content": {"type": "string"}},
+                "required": ["filePath", "content"],
             },
         },
     },
     {
         "type": "function",
         "function": {
-            "name": "run_command",
+            "name": "edit",
+            "description": "Replace one occurrence of oldString with newString in a file. Fails if the text is absent or ambiguous.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filePath": {"type": "string"},
+                    "oldString": {"type": "string"},
+                    "newString": {"type": "string"},
+                    "replaceAll": {"type": "boolean", "default": False},
+                },
+                "required": ["filePath", "oldString", "newString"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "bash",
             "description": "Run one shell command in the workspace and return its output.",
             "parameters": {
                 "type": "object",
-                "properties": {"command": {"type": "string"}},
+                "properties": {
+                    "command": {"type": "string"},
+                    "timeout": {"type": "integer", "default": 60},
+                },
                 "required": ["command"],
             },
         },
@@ -117,7 +127,11 @@ TOOLS = [
             "description": "Search file contents with a regular expression.",
             "parameters": {
                 "type": "object",
-                "properties": {"pattern": {"type": "string"}, "path": {"type": "string", "default": "."}},
+                "properties": {
+                    "pattern": {"type": "string"},
+                    "path": {"type": "string", "default": "."},
+                    "include": {"type": "string", "default": "*"},
+                },
                 "required": ["pattern"],
             },
         },
@@ -125,8 +139,34 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "glob",
+            "description": "Find files by glob pattern, for example '**/*.py'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pattern": {"type": "string"},
+                    "path": {"type": "string", "default": "."},
+                },
+                "required": ["pattern"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list",
+            "description": "List a directory of the workspace.",
+            "parameters": {
+                "type": "object",
+                "properties": {"path": {"type": "string", "default": "."}},
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "finish",
-            "description": "Declare the task complete. Only call this when the tests pass.",
+            "description": "Declare the task complete. Call only after the full test suite passes.",
             "parameters": {"type": "object", "properties": {}},
         },
     },
@@ -154,7 +194,7 @@ def _command_ok(command: str) -> bool:
     return True
 
 
-def _run_command(root: Path, command: str) -> str:
+def _run_command(root: Path, command: str, timeout: int = COMMAND_TIMEOUT) -> str:
     if not _command_ok(command):
         return "refused: command not allowed in this sandbox"
     site = ""
@@ -174,18 +214,76 @@ def _run_command(root: Path, command: str) -> str:
     try:
         proc = subprocess.run(
             ["sh", "-c", command], cwd=root, capture_output=True, text=True,
-            timeout=COMMAND_TIMEOUT, env=env, check=False,
+            timeout=timeout, env=env, check=False,
         )
     except subprocess.TimeoutExpired:
-        return f"timeout after {COMMAND_TIMEOUT}s"
+        return f"timeout after {timeout}s"
     out = (proc.stdout + proc.stderr).strip()
     return out[:MAX_TOOL_CHARS] or f"exit {proc.returncode}"
+
+
+def _arg(args: dict, *names: str, default=None):
+    for name in names:
+        if name in args and args[name] not in (None, ""):
+            return args[name]
+    return default
 
 
 def execute_tool(root: Path, name: str, args: dict) -> tuple[str, bool]:
     if name == "finish":
         return "done", True
-    if name == "list_files":
+    if name in ("read", "read_file"):
+        target = _within(root, str(_arg(args, "filePath", "path", default="")))
+        if target is None or not target.is_file():
+            return "no such file", False
+        start = max(1, int(_arg(args, "offset", "start", default=1)))
+        limit = int(_arg(args, "limit", default=400))
+        lines = target.read_text(encoding="utf-8", errors="replace").splitlines()
+        body = "\n".join(f"{i:>4} {line}" for i, line in enumerate(lines[start - 1 : start - 1 + limit], start))
+        return body[:MAX_TOOL_CHARS] or "(empty file)", False
+    if name in ("write", "write_file"):
+        target = _within(root, str(_arg(args, "filePath", "path", default="")))
+        if target is None:
+            return "path escapes the workspace", False
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(str(args.get("content", "")), encoding="utf-8")
+        return f"wrote {target.relative_to(root)}", False
+    if name == "edit":
+        target = _within(root, str(_arg(args, "filePath", "path", default="")))
+        if target is None or not target.is_file():
+            return "no such file", False
+        source = target.read_text(encoding="utf-8")
+        old = str(args.get("oldString", ""))
+        new = str(args.get("newString", ""))
+        hits = source.count(old) if old else 0
+        if hits == 0:
+            return "oldString not found; read the file and copy the text exactly", False
+        if hits > 1 and not args.get("replaceAll"):
+            return f"oldString appears {hits} times; add context or set replaceAll", False
+        target.write_text(source.replace(old, new, -1 if args.get("replaceAll") else 1), encoding="utf-8")
+        return f"edited {target.relative_to(root)}", False
+    if name in ("bash", "run_command"):
+        timeout = min(120, max(5, int(args.get("timeout", COMMAND_TIMEOUT))))
+        return _run_command(root, str(args.get("command", "")), timeout), False
+    if name == "grep":
+        pattern = str(args.get("pattern", ""))
+        include = str(args.get("include", "*"))
+        try:
+            proc = subprocess.run(
+                ["grep", "-rn", f"--include={include}", "-E", pattern, str(args.get("path", "."))],
+                cwd=root, capture_output=True, text=True, timeout=30, check=False,
+            )
+        except subprocess.TimeoutExpired:
+            return "timeout", False
+        return (proc.stdout or "no matches")[:MAX_TOOL_CHARS], False
+    if name == "glob":
+        base = _within(root, str(args.get("path", ".")))
+        if base is None or not base.is_dir():
+            return "no such directory", False
+        pattern = str(args.get("pattern", "**/*"))
+        hits = sorted(str(p.relative_to(root)) for p in base.glob(pattern) if "__pycache__" not in p.parts)
+        return ("\n".join(hits[:200]) or "no matches")[:MAX_TOOL_CHARS], False
+    if name in ("list", "list_files"):
         base = _within(root, str(args.get("path", ".")))
         if base is None or not base.exists():
             return "no such path", False
@@ -195,35 +293,10 @@ def execute_tool(root: Path, name: str, args: dict) -> tuple[str, bool]:
             if "__pycache__" not in p.parts
         )
         return "\n".join(entries)[:MAX_TOOL_CHARS], False
-    if name == "read_file":
-        target = _within(root, str(args.get("path", "")))
-        if target is None or not target.is_file():
-            return "no such file", False
-        start = max(1, int(args.get("start", 1)))
-        end = max(start, int(args.get("end", 400)))
-        lines = target.read_text(encoding="utf-8", errors="replace").splitlines()
-        body = "\n".join(f"{i:>4} {line}" for i, line in enumerate(lines[start - 1 : end], start))
-        return body[:MAX_TOOL_CHARS], False
-    if name == "write_file":
-        target = _within(root, str(args.get("path", "")))
-        if target is None:
-            return "path escapes the workspace", False
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(str(args.get("content", "")), encoding="utf-8")
-        return f"wrote {target.relative_to(root)}", False
-    if name == "run_command":
-        return _run_command(root, str(args.get("command", ""))), False
-    if name == "grep":
-        pattern = str(args.get("pattern", ""))
-        try:
-            proc = subprocess.run(
-                ["grep", "-rn", "--include=*.py", pattern, str(args.get("path", "."))],
-                cwd=root, capture_output=True, text=True, timeout=30, check=False,
-            )
-        except subprocess.TimeoutExpired:
-            return "timeout", False
-        return (proc.stdout or "no matches")[:MAX_TOOL_CHARS], False
     return f"unknown tool {name}", False
+
+
+_KEY_CURSOR = itertools.count()
 
 
 def _nvidia_keys() -> list[str]:
@@ -257,12 +330,13 @@ def call_model(model: str, messages: list[dict], key: str) -> tuple[dict, Usage]
     if provider == "openrouter":
         payload["usage"] = {"include": True}
     last: Exception | None = None
-    for attempt in range(10):
+    for attempt in range(12):
+        key_index = next(_KEY_CURSOR) % len(pool)
         request = urllib.request.Request(
             url,
             data=json.dumps(payload).encode(),
             headers={
-                "Authorization": f"Bearer {pool[attempt % len(pool)]}",
+                "Authorization": f"Bearer {pool[key_index]}",
                 "Content-Type": "application/json",
                 "HTTP-Referer": "https://github.com/dev4aibots/harness2-studio",
                 "X-Title": "harness-bench",

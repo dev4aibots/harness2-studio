@@ -9,6 +9,16 @@ from pathlib import Path
 BENCH = Path(__file__).resolve().parent
 
 
+def wilson(passes: int, total: int, z: float = 1.96) -> tuple[float, float]:
+    if not total:
+        return (0.0, 0.0)
+    p = passes / total
+    denom = 1 + z * z / total
+    centre = p + z * z / (2 * total)
+    margin = z * ((p * (1 - p) / total + z * z / (4 * total * total)) ** 0.5)
+    return ((centre - margin) / denom, (centre + margin) / denom)
+
+
 def load() -> list[dict]:
     path = BENCH / "results.jsonl"
     if not path.is_file():
@@ -50,9 +60,19 @@ def main() -> int:
         "- Sandbox: commands limited to a read/test whitelist, 20 turns, 60 s per command.\n"
     )
 
+    lines.append("## Target\n")
+    lines.append(
+        "The bar is Claude Opus 5.5's published SWE-Bench Pro score, **0.899**, read from the LLM\n"
+        "Stats leaderboard on 2026-10-23 (62 models, all self-reported, 0 independently verified).\n"
+        "It is a fixed number to climb toward, not an equivalence: this benchmark is 13 local\n"
+        "debugging tasks on one repository, not SWE-Bench Pro. Crossing the bar here means the\n"
+        "harness reached the target that was set for it, not that it matches Opus on real software\n"
+        "work. See [OPUS-BASELINE.md](OPUS-BASELINE.md) for the published numbers themselves.\n"
+    )
+
     lines.append("## Summary\n")
-    lines.append("| Model | Harness | Runs | Passes | Pass@1 | Pass@2 | Avg turns | Avg prompt tok | Avg completion tok |")
-    lines.append("|---|---|---|---|---|---|---|---|---|")
+    lines.append("| Model | Harness | Runs | Passes | Pass@1 | 95% CI | Pass@2 | Avg turns | Avg prompt tok | Avg completion tok |")
+    lines.append("|---|---|---|---|---|---|---|---|---|---|")
     summary = {}
     for (model, harness), group in sorted(arms.items()):
         runs = len(group)
@@ -65,9 +85,11 @@ def main() -> int:
         avg_in = sum(r.get("prompt_tokens", 0) for r in group) / runs if runs else 0
         avg_out = sum(r.get("completion_tokens", 0) for r in group) / runs if runs else 0
         summary[(model, harness)] = (passes, runs, solved, len(per_task))
+        low, high = wilson(passes, runs)
         lines.append(
             f"| {model} | {harness} | {runs} | {passes} | {passes / runs:.0%} | "
-            f"{solved}/{len(per_task)} | {avg_turns:.1f} | {avg_in:,.0f} | {avg_out:,.0f} |"
+            f"[{low:.0%}, {high:.0%}] | {solved}/{len(per_task)} | {avg_turns:.1f} | "
+            f"{avg_in:,.0f} | {avg_out:,.0f} |"
         )
 
     lines.append("\n## Per task\n")

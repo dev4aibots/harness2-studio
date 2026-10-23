@@ -26,6 +26,17 @@ COMBOS = {
         "models-dedupe-lost",
         "run-argv-drops-k",
     ],
+    "hard-cli-three": ["run-argv-drops-k", "summary-status-filter", "models-dedupe-lost"],
+    "hard-installer-two": ["blob-sha-length", "include-everything"],
+    "hard-env-and-cli": ["env-template-overwrite", "run-argv-drops-k", "summary-status-filter"],
+    "hard-all-six": [
+        "blob-sha-length",
+        "include-everything",
+        "models-dedupe-lost",
+        "env-template-overwrite",
+        "run-argv-drops-k",
+        "summary-status-filter",
+    ],
 }
 
 

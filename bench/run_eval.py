@@ -6,8 +6,11 @@ import argparse
 import json
 import os
 import shutil
+import subprocess
 import sys
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -16,19 +19,21 @@ import agent
 import tasks as tasklib
 
 BENCH = Path(__file__).resolve().parent
-PACK = BENCH.parent / "harness-pack" / "base"
+PACK = Path(os.environ.get("HARNESS_PACK", BENCH.parent / "harness-pack" / "base"))
 
-TOOL_BRIEF = """You work in a sandboxed copy of a Python repository. Tools:
+TOOL_BRIEF = """The workspace root is the repository root. Tools:
 
-- list_files(path): list files
-- read_file(path, start, end): read a file, 1-based line numbers in the output
-- write_file(path, content): overwrite a file
-- run_command(command): run one command in the workspace (python, pytest, grep, cat, ls, ...
-  are allowed; redirection and chaining are not)
-- grep(pattern, path): search file contents
+- read(filePath, offset?, limit?): read a file with 1-based line numbers
+- write(filePath, content): overwrite a file
+- edit(filePath, oldString, newString, replaceAll?): replace text inside a file
+- bash(command): run one command in the workspace (python3, pytest, grep, cat, ls and similar are
+  allowed; redirection, chaining and removal are refused)
+- grep(pattern, path?, include?): search file contents
+- glob(pattern, path?): find files by a glob pattern
+- list(path): list a directory
 - finish(): declare the work complete
 
-The workspace root is the repository root. Tests run with `python -m pytest -q`.
+Tests run with `python3 -m pytest -q`.
 """
 
 BASELINE = TOOL_BRIEF
@@ -77,6 +82,7 @@ def main() -> int:
     parser.add_argument("--k", type=int, default=1)
     parser.add_argument("--tasks", default="", help="comma-separated task ids")
     parser.add_argument("--cap", type=float, default=25.0, help="hard spend cap in USD")
+    parser.add_argument("--jobs", type=int, default=4, help="concurrent rollouts")
     parser.add_argument("--out", default=str(BENCH / "results.jsonl"))
     parser.add_argument("--max-turns", type=int, default=agent.MAX_TURNS)
     parser.add_argument("--dry-run", action="store_true")
@@ -86,6 +92,14 @@ def main() -> int:
     if args.dry_run:
         print(f"{args.harness}: {len(system)} chars")
         return 0
+
+    try:
+        rev = subprocess.run(
+            ["git", "-C", str(BENCH.parent), "rev-parse", "--short", "HEAD"],
+            capture_output=True, text=True, check=False,
+        ).stdout.strip()
+    except OSError:
+        rev = ""
 
     provider = os.environ.get("BENCH_PROVIDER", "nvidia")
     if provider == "nvidia":
@@ -103,52 +117,67 @@ def main() -> int:
     if chosen:
         task_dirs = [p for p in task_dirs if p.name in chosen]
 
+    jobs = []
+    for task_dir in task_dirs:
+        manifest = json.loads((task_dir / "TASK.json").read_text())
+        for rep in range(1, args.k + 1):
+            jobs.append((manifest, rep))
+
     spent = 0.0
     out = Path(args.out)
-    with out.open("a", encoding="utf-8") as sink:
-        for task_dir in task_dirs:
-            manifest = json.loads((task_dir / "TASK.json").read_text())
-            for rep in range(1, args.k + 1):
-                if spent >= args.cap:
-                    print(f"cap reached: ${spent:.2f} >= ${args.cap:.2f}; stopping")
-                    return 3
-                work = BENCH / "work" / f"{manifest['id']}-{args.harness}-{rep}"
-                tasklib.snapshot(work)
-                started = time.time()
-                try:
-                    run = agent.run_agent(
-                        task_id=manifest["id"],
-                        workspace=work,
-                        instruction=instruction(manifest),
-                        system_prompt=system,
-                        model=args.model,
-                        key=key,
-                        max_turns=args.max_turns,
-                    )
-                except Exception as exc:  # noqa: BLE001 - a failed call is a failed rollout
-                    record = {
-                        "task": manifest["id"], "harness": args.harness, "model": args.model,
-                        "rep": rep, "passed": False, "error": str(exc)[:500], "cost": 0.0,
-                    }
-                    sink.write(json.dumps(record) + "\n")
-                    print(f"{manifest['id']} rep{rep}: ERROR {str(exc)[:120]}")
-                    continue
-                passed, tail = tasklib.grade(work, pristine)
-                spent += run.usage.cost
-                record = {
-                    "task": manifest["id"], "harness": args.harness, "model": args.model,
-                    "rep": rep, "passed": passed, "turns": run.turns,
-                    "tool_calls": run.tool_calls, "cost": round(run.usage.cost, 4),
-                    "prompt_tokens": run.usage.prompt_tokens,
-                    "completion_tokens": run.usage.completion_tokens,
-                    "seconds": round(time.time() - started, 1), "tail": tail,
-                }
+    lock = threading.Lock()
+
+    def rollout(manifest: dict, rep: int) -> dict:
+        work = BENCH / "work" / f"{manifest['id']}-{args.harness}-{rep}"
+        tasklib.snapshot(work)
+        if args.harness == "ours" and (PACK / "scripts").is_dir():
+            shutil.copytree(PACK / "scripts", work / "scripts", dirs_exist_ok=True)
+        started = time.time()
+        try:
+            run = agent.run_agent(
+                task_id=manifest["id"],
+                workspace=work,
+                instruction=instruction(manifest),
+                system_prompt=system,
+                model=args.model,
+                key=key,
+                max_turns=args.max_turns,
+            )
+        except Exception as exc:  # noqa: BLE001 - a failed call is a failed rollout
+            return {
+                "task": manifest["id"], "harness": args.harness, "model": args.model,
+                "rep": rep, "passed": False, "error": str(exc)[:500], "cost": 0.0,
+            }
+        passed, tail = tasklib.grade(work, pristine)
+        shutil.rmtree(work, ignore_errors=True)
+        return {
+            "task": manifest["id"], "harness": args.harness, "model": args.model,
+            "rep": rep, "passed": passed, "turns": run.turns,
+            "tool_calls": run.tool_calls, "cost": round(run.usage.cost, 4),
+            "prompt_tokens": run.usage.prompt_tokens,
+            "completion_tokens": run.usage.completion_tokens,
+            "seconds": round(time.time() - started, 1), "tail": tail,
+            "transcript": run.transcript[-12:],
+            "harness_rev": rev, "harness_chars": len(system),
+        }
+
+    with out.open("a", encoding="utf-8") as sink, ThreadPoolExecutor(max_workers=args.jobs) as pool:
+        futures = {pool.submit(rollout, manifest, rep): (manifest["id"], rep) for manifest, rep in jobs}
+        for future in as_completed(futures):
+            name, rep = futures[future]
+            record = future.result()
+            with lock:
+                spent += float(record.get("cost", 0.0))
                 sink.write(json.dumps(record) + "\n")
                 sink.flush()
-                mark = "PASS" if passed else "fail"
-                print(f"{manifest['id']:<24} {args.harness:<8} rep{rep} {mark} "
-                      f"turns={run.turns:<2} ${run.usage.cost:.3f}  total ${spent:.2f}")
-                shutil.rmtree(work, ignore_errors=True)
+                if record.get("error"):
+                    print(f"{name:<26} rep{rep} ERROR {record['error'][:100]}")
+                else:
+                    mark = "PASS" if record["passed"] else "fail"
+                    print(f"{name:<26} {args.harness:<8} rep{rep} {mark} "
+                          f"turns={record['turns']:<2} ${record['cost']:.3f}  total ${spent:.2f}")
+                if spent >= args.cap:
+                    print(f"cap reached: ${spent:.2f} >= ${args.cap:.2f}")
     return 0
 
 
