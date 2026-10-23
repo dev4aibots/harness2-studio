@@ -6,9 +6,12 @@ authenticated shows up. No hardcoded catalogue, no invented model IDs.
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from dataclasses import dataclass
+
+from .h2 import find_opencode, sandbox_env
 
 FALLBACK = ("opencode/",)
 
@@ -46,7 +49,7 @@ def list_models(refresh: bool = False) -> list[Model]:
     global _CACHE
     if _CACHE is not None and not refresh:
         return _CACHE
-    exe = shutil.which("opencode")
+    exe = find_opencode()
     if not exe:
         _CACHE = []
         return _CACHE
@@ -57,6 +60,7 @@ def list_models(refresh: bool = False) -> list[Model]:
             text=True,
             timeout=25,
             check=False,
+            env=sandbox_env(dict(os.environ)),
         )
         _CACHE = parse(proc.stdout)
     except (OSError, subprocess.SubprocessError):

@@ -191,6 +191,27 @@ def full_argv(install: Install, action: str, opts: Options) -> list[str]:
     return [str(install.python), "-m", MODULES[action], *build(action, opts)]
 
 
+def sandbox_env(env: dict[str, str]) -> dict[str, str]:
+    """Make an inherited environment safe for local subprocesses.
+
+    Sandbox/CI images often export NO_PROXY values containing bracketed IPv6
+    literals (e.g. ``[::1]``) that crash httpx-based tools outright
+    (``InvalidURL: Invalid port: ':1]'``) and confuse other HTTP stacks when
+    they call the local model proxy on 127.0.0.1. Drop the bracketed entries,
+    guarantee localhost coverage, and unbuffer Python children so the Console
+    streams live. Everything else is preserved untouched.
+    """
+    for key in ("NO_PROXY", "no_proxy"):
+        raw = env.get(key, "")
+        parts = [p.strip() for p in raw.split(",") if p.strip() and "[" not in p]
+        for host in ("localhost", "127.0.0.1"):
+            if host not in parts:
+                parts.append(host)
+        env[key] = ",".join(parts)
+    env.setdefault("PYTHONUNBUFFERED", "1")
+    return env
+
+
 def merged_env(install: Install, overrides: dict[str, str] | None = None) -> dict[str, str]:
     """Process env + .env + explicit overrides; shell wins, per harness2 config.py."""
     env = dict(os.environ)
@@ -198,6 +219,12 @@ def merged_env(install: Install, overrides: dict[str, str] | None = None) -> dic
         env.setdefault(key, value)
     if overrides:
         env.update({k: v for k, v in overrides.items() if v is not None})
+    sandbox_env(env)
+    # The checkout's own bun (benchmark runtime) must resolve inside spawned
+    # commands even when the app was launched from a minimal shell PATH.
+    bun_bin = install.repo / "dependencies" / "tools" / "node_modules" / ".bin"
+    if bun_bin.is_dir():
+        env["PATH"] = str(bun_bin) + os.pathsep + env.get("PATH", "")
     return env
 
 
@@ -320,5 +347,26 @@ class Stream:
         return self._proc is not None and self._proc.poll() is None
 
 
+def find_opencode() -> str | None:
+    """Locate the opencode CLI, including user-prefix installs off PATH.
+
+    Minimal shells (cron, --norc, service units) often lack the npm global
+    bin or ~/.local/bin on PATH even when opencode is installed; check the
+    standard install locations before giving up.
+    """
+    found = shutil.which("opencode")
+    if found:
+        return found
+    home = Path.home()
+    for cand in (
+        home / ".local" / "bin" / "opencode",
+        home / ".opencode" / "bin" / "opencode",
+        Path("/usr/local/bin/opencode"),
+    ):
+        if cand.is_file() and os.access(cand, os.X_OK):
+            return str(cand)
+    return None
+
+
 def which_opencode() -> str | None:
-    return shutil.which("opencode")
+    return find_opencode()
