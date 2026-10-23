@@ -51,8 +51,8 @@ def main() -> int:
     )
 
     lines.append("## Summary\n")
-    lines.append("| Model | Harness | Runs | Passes | Pass@1 | Pass@2 | Avg turns |")
-    lines.append("|---|---|---|---|---|---|---|")
+    lines.append("| Model | Harness | Runs | Passes | Pass@1 | Pass@2 | Avg turns | Avg prompt tok | Avg completion tok |")
+    lines.append("|---|---|---|---|---|---|---|---|---|")
     summary = {}
     for (model, harness), group in sorted(arms.items()):
         runs = len(group)
@@ -62,10 +62,12 @@ def main() -> int:
             per_task[r["task"]].append(bool(r.get("passed")))
         solved = sum(1 for v in per_task.values() if any(v))
         avg_turns = sum(r.get("turns", 0) for r in group) / runs if runs else 0
+        avg_in = sum(r.get("prompt_tokens", 0) for r in group) / runs if runs else 0
+        avg_out = sum(r.get("completion_tokens", 0) for r in group) / runs if runs else 0
         summary[(model, harness)] = (passes, runs, solved, len(per_task))
         lines.append(
             f"| {model} | {harness} | {runs} | {passes} | {passes / runs:.0%} | "
-            f"{solved}/{len(per_task)} | {avg_turns:.1f} |"
+            f"{solved}/{len(per_task)} | {avg_turns:.1f} | {avg_in:,.0f} | {avg_out:,.0f} |"
         )
 
     lines.append("\n## Per task\n")
@@ -87,9 +89,19 @@ def main() -> int:
             o = summary[(model, "ours")]
             dp = (o[0] / o[1] - b[0] / b[1]) * 100
             ds = (o[2] / o[3] - b[2] / b[3]) * 100
+            bg = arms[(model, "baseline")]
+            og = arms[(model, "ours")]
+            bt = sum(r.get("turns", 0) for r in bg) / len(bg)
+            ot = sum(r.get("turns", 0) for r in og) / len(og)
+            bi = sum(r.get("prompt_tokens", 0) for r in bg) / len(bg)
+            oi = sum(r.get("prompt_tokens", 0) for r in og) / len(og)
             lines.append(
                 f"- **{model}**: pass@1 {b[0]}/{b[1]} → {o[0]}/{o[1]} "
                 f"({dp:+.0f} points); pass@2 {b[2]}/{b[3]} → {o[2]}/{o[3]} ({ds:+.0f} points)."
+            )
+            lines.append(
+                f"  Efficiency: {bt:.1f} → {ot:.1f} turns per task; "
+                f"{bi:,.0f} → {oi:,.0f} prompt tokens per rollout."
             )
 
     lines.append("\n## By difficulty\n")
