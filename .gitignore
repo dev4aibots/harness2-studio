@@ -10,3 +10,8 @@ dist/
 runs/
 *.log
 .DS_Store
+
+# bench: generated workspaces and logs, not evidence
+bench/work/
+bench/tasks/
+bench/*.log

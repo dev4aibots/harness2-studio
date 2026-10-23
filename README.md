@@ -26,6 +26,7 @@ Harness² is a CLI framework: seven `argparse` commands, a `runs/` tree, and eig
 | `harness2-bridge` | Models → Bridge: model, host, port; long-running, output streams to Console |
 | The eight components (C1–C8) | Harness → per-task, per-version viewer with diff vs base and guarded editing |
 | A harness to start from | [harness-pack/](harness-pack/) → the authored C1–C8 set, validated against the surface rules and installable with one copy |
+| Evidence it helps | [bench/](bench/) → a controlled A/B (same model, tools and loop; only the harness differs), with the raw JSONL and the published Opus numbers kept separate |
 | `runs/` artifacts | Runs → demo/summary/judged/base-judged, raw JSON, one-click copy |
 | Scores over time | **Tracker** → every sweep with its score, delta vs the previous run, and the component the next edit should target |
 | Driving a coding agent | **OpenCode** → run `opencode` headless from the UI, streamed into Console; no terminal needed |
