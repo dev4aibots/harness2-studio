@@ -204,22 +204,21 @@ def test_optional_package_groups_do_not_duplicate() -> None:
 
 def test_download_reports_a_filesystem_error_not_a_network_error(tmp_path: Path) -> None:
     data = b"payload\n"
-    locked = tmp_path / "locked"
-    locked.mkdir()
-    target = locked / "nested" / "f.py"
+    # A regular file where a directory is expected fails identically on every OS
+    # (ENOTDIR / WinError 3). A read-only directory does not: Windows ignores the
+    # write bit, so the POSIX-only trick silently succeeded there.
+    blocker = tmp_path / "blocker"
+    blocker.write_text("not a directory\n", encoding="utf-8")
+    target = blocker / "f.py"
     fetcher = FakeFetcher({"f.py": data})
-    try:
-        locked.chmod(0o500)
-        with pytest.raises(installer.InstallError) as exc:
-            installer.download_file(
-                fetcher, ["https://raw.test/sha/f.py"], target, blob_sha(data),
-                cancel=threading.Event(), progress=lambda _n: None,
-            )
-        message = str(exc.value)
-        assert "Cannot write" in message or "Permission denied" in message
-        assert "Network error" not in message
-    finally:
-        locked.chmod(0o700)
+    with pytest.raises(installer.InstallError) as exc:
+        installer.download_file(
+            fetcher, ["https://raw.test/sha/f.py"], target, blob_sha(data),
+            cancel=threading.Event(), progress=lambda _n: None,
+        )
+    message = str(exc.value)
+    assert "Cannot write" in message or "Permission denied" in message
+    assert "Network error" not in message
 
 
 def test_filesystem_root_is_refused() -> None:

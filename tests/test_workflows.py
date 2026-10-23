@@ -8,12 +8,18 @@ model. Network and process behaviour is covered separately.
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 
 import pytest
 
 from h2studio.services import envfile, h2, models, runs
+
+
+def _posix_mode(path: Path) -> int | None:
+    """The 0o600 assertion is a POSIX guarantee; on Windows chmod only toggles read-only."""
+    return None if os.name == "nt" else path.stat().st_mode & 0o777
 
 
 def test_every_cli_module_has_an_argv_builder(tmp_path: Path) -> None:
@@ -105,7 +111,7 @@ def test_env_file_preserves_comments_and_unknown_keys(tmp_path: Path) -> None:
     assert "GOOGLE_CLOUD_PROJECT=old" in text
     assert "OTHER=untouched" in text
     assert "HARNESS2_SOLVER_MODEL=provider/model" in text
-    assert path.stat().st_mode & 0o777 == 0o600
+    assert _posix_mode(path) in (None, 0o600)
 
 
 def test_env_template_is_created_once(tmp_path: Path) -> None:
@@ -114,7 +120,7 @@ def test_env_template_is_created_once(tmp_path: Path) -> None:
     first = path.read_text()
     assert "HARNESS2_SOLVER_MODEL=" in first
     assert first.count("HARNESS2_SOLVER_MODEL") == 1
-    assert path.stat().st_mode & 0o777 == 0o600
+    assert _posix_mode(path) in (None, 0o600)
     path.write_text("# user edited\n")
     assert envfile.write_template(path) is False
     assert path.read_text() == "# user edited\n"
